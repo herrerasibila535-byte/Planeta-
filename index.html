@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Genesis Core v4.0 // CODING+ASTRO</title>
+
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+    :root {
+        --primary: #00f3ff;
+        --secondary: #bd00ff;
+        --bg: #03030b;
+    }
+
+    body {
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg);
+        font-family: 'Share Tech Mono', monospace;
+    }
+
+    /* UI CAPA SUPERIOR */
+    .ui-layer {
+        position: absolute;
+        pointer-events: none;
+        width: 100%;
+        height: 100%;
+        z-index: 10;
+        box-shadow: inset 0 0 100px rgba(0,0,0,0.9);
+    }
+
+    /* HUD IZQUIERDA */
+    .hud-panel {
+        position: absolute;
+        top: 30px;
+        left: 30px;
+        color: var(--primary);
+        text-shadow: 0 0 10px var(--primary);
+    }
+
+    .hud-title {
+        font-size: 24px;
+        border-bottom: 2px solid var(--primary);
+        padding-bottom: 5px;
+        margin-bottom: 10px;
+        display: inline-block;
+    }
+
+    .hud-data {
+        font-size: 12px;
+        line-height: 1.6;
+        opacity: 0.8;
+    }
+
+    /* TERMINAL DERECHA INFERIOR */
+    .terminal {
+        position: absolute;
+        bottom: 30px;
+        right: 30px;
+        text-align: right;
+        color: var(--secondary);
+        text-shadow: 0 0 8px var(--secondary);
+        font-size: 11px;
+    }
+
+    /* RETÍCULA CENTRAL */
+    .reticle {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 400px;
+        height: 400px;
+        border: 1px dashed rgba(0, 243, 255, 0.2);
+        border-radius: 50%;
+        animation: spin 60s linear infinite;
+    }
+
+    .reticle::before {
+        content: '';
+        position: absolute;
+        top: -10px; left: 50%;
+        width: 2px; height: 20px;
+        background: var(--primary);
+    }
+
+    @keyframes spin { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+    /* LOADING BAR */
+    .loader {
+        position: absolute;
+        bottom: 30px;
+        left: 30px;
+        width: 200px;
+        height: 2px;
+        background: rgba(255,255,255,0.1);
+    }
+    .loader-bar {
+        width: 100%;
+        height: 100%;
+        background: var(--primary);
+        animation: load 2s infinite ease-in-out;
+        transform-origin: left;
+    }
+    @keyframes load { 
+        0% { transform: scaleX(0); }
+        50% { transform: scaleX(1); }
+        100% { transform: scaleX(0); }
+    }
+</style>
+</head>
+
+<body>
+
+<div class="ui-layer">
+    <div class="reticle"></div>
+    
+    <div class="hud-panel">
+        <div class="hud-title">GENESIS // CORE</div>
+        <div class="hud-data" id="stats">
+            COORDS: <span id="coords">0.00, 0.00</span><br>
+            SPECTRAL: CLASS-A<br>
+            TEMP: 4,500 K<br>
+            STATUS: ONLINE
+        </div>
+    </div>
+
+    <div class="terminal">
+        Compiling physics engine...<br>
+        Rendering nebula shader...<br>
+        > SYSTEM READY_
+    </div>
+
+    <div class="loader"><div class="loader-bar"></div></div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+
+// --- CONFIGURACIÓN DE ESCENA ---
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x020205); // Fondo muy oscuro
+scene.fog = new THREE.FogExp2(0x020205, 0.02);
+
+const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 0, 7);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+// Tone mapping para que el brillo no queme los colores
+renderer.toneMapping = THREE.ReinhardToneMapping;
+document.body.appendChild(renderer.domElement);
+
+// --- 1. EL NÚCLEO (PLANETA/ASTEROIDE AVANZADO) ---
+// Usamos MeshPhysicalMaterial para mejores reflejos y ShaderMaterial para la atmósfera
+const geometry = new THREE.IcosahedronGeometry(1.8, 64); // Alta resolución
+
+// Manipulación de vértices para crear terreno procedural
+const pos = geometry.attributes.position;
+const colors = [];
+const v = new THREE.Vector3();
+const colorBase = new THREE.Color("#001e4d"); // Azul profundo
+const colorPeak = new THREE.Color("#00f3ff"); // Cian neón
+
+for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i);
+    
+    // Ruido complejo (simulado con senos/cosenos)
+    const noise = 
+        Math.sin(v.x * 4.0 + 1.2) * Math.cos(v.y * 3.5 + 2.4) * Math.sin(v.z * 4.0) * 0.15 +
+        Math.sin(v.x * 10.0) * 0.02; // Detalle fino
+        
+    const displacement = 1 + noise;
+    v.multiplyScalar(displacement);
+    pos.setXYZ(i, v.x, v.y, v.z);
+
+    // Colorear vértices: Valles oscuros, picos brillantes
+    const intensity = (noise + 0.15) * 2.5; 
+    const finalColor = colorBase.clone().lerp(colorPeak, Math.max(0, intensity));
+    colors.push(finalColor.r, finalColor.g, finalColor.b);
+}
+geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+geometry.computeVertexNormals();
+
+const material = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.4,
+    metalness: 0.6,
+    emissive: 0x000a20,
+    emissiveIntensity: 0.8
+});
+
+const planet = new THREE.Mesh(geometry, material);
+scene.add(planet);
+
+// --- 2. ATMÓSFERA (SHADER PERSONALIZADO) ---
+// Este es el secreto para que se vea como el video (efecto Fresnel)
+const atmosGeo = new THREE.IcosahedronGeometry(2.3, 32);
+const atmosMat = new THREE.ShaderMaterial({
+    vertexShader: `
+        varying vec3 vNormal;
+        void main() {
+            vNormal = normalize(normalMatrix * normal);
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+    `,
+    fragmentShader: `
+        varying vec3 vNormal;
+        void main() {
+            // Calculo de Fresnel (borde brillante)
+            float intensity = pow(0.55 - dot(vNormal, vec3(0, 0, 1.0)), 2.8);
+            // Color: Azul cian brillante
+            gl_FragColor = vec4(0.0, 0.9, 1.0, 1.0) * intensity;
+        }
+    `,
+    blending: THREE.AdditiveBlending,
+    side: THREE.BackSide, // Renderizar la cara interior para efecto de halo
+    transparent: true
+});
+const atmosphere = new THREE.Mesh(atmosGeo, atmosMat);
+scene.add(atmosphere);
+
+// --- 3. PARTÍCULAS ORBITALES (ANILLO MÁGICO) ---
+const particlesGeo = new THREE.BufferGeometry();
+const count = 3000;
+const pPos = new Float32Array(count * 3);
+const pSizes = new Float32Array(count);
+
+for(let i=0; i<count; i++) {
+    // Distribución en disco con variación vertical
+    const angle = Math.random() * Math.PI * 2;
+    const r = 2.8 + Math.random() * 2.5; // Radio orbital
+    const y = (Math.random() - 0.5) * 1.5 * (3.5/r); // Más plano lejos, más volumen cerca
+
+    pPos[i*3] = Math.cos(angle) * r;
+    pPos[i*3+1] = y;
+    pPos[i*3+2] = Math.sin(angle) * r;
+    
+    pSizes[i] = Math.random();
+}
+
+particlesGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+particlesGeo.setAttribute('size', new THREE.BufferAttribute(pSizes, 1));
+
+// Shader para partículas parpadeantes
+const particlesMat = new THREE.PointsMaterial({
+    color: 0xbd00ff, // Púrpura/Violeta como en el video
+    size: 0.04,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending
+});
+
+const particleSystem = new THREE.Points(particlesGeo, particlesMat);
+scene.add(particleSystem);
+
+// --- 4. FONDO ESTELAR (PROFUNDIDAD) ---
+const starGeo = new THREE.BufferGeometry();
+const starCount = 2000;
+const starPos = new Float32Array(starCount * 3);
+for(let i=0; i<starCount*3; i++) {
+    starPos[i] = (Math.random() - 0.5) * 60;
+}
+starGeo.setAttribute('position', new THREE.BufferAttribute(starPos, 3));
+const stars = new THREE.Points(starGeo, new THREE.PointsMaterial({
+    color: 0xffffff,
+    size: 0.02,
+    transparent: true,
+    opacity: 0.4
+}));
+scene.add(stars);
+
+// --- ILUMINACIÓN ---
+const ambientLight = new THREE.AmbientLight(0x404040, 2); // Luz base suave
+scene.add(ambientLight);
+
+const blueLight = new THREE.PointLight(0x0088ff, 30, 20);
+blueLight.position.set(5, 3, 5);
+scene.add(blueLight);
+
+const purpleLight = new THREE.PointLight(0xff00ff, 20, 20);
+purpleLight.position.set(-5, -2, 2);
+scene.add(purpleLight);
+
+// --- POST-PROCESADO (GLOW) ---
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+// Bloom intenso para efecto neón
+const bloomPass = new UnrealBloomPass(
+    new THREE.Vector2(window.innerWidth, window.innerHeight),
+    2.0, // Strength (intensidad)
+    0.6, // Radius
+    0.05 // Threshold
+);
+composer.addPass(bloomPass);
+
+// --- CONTROLES Y ANIMACIÓN ---
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.5;
+
+// Mouse interactivo
+let mouseX = 0;
+let mouseY = 0;
+document.addEventListener('mousemove', (e) => {
+    mouseX = (e.clientX - window.innerWidth / 2) * 0.001;
+    mouseY = (e.clientY - window.innerHeight / 2) * 0.001;
+});
+
+const clock = new THREE.Clock();
+
+function animate() {
+    requestAnimationFrame(animate);
+    const t = clock.getElapsedTime();
+
+    // Rotaciones complejas
+    planet.rotation.y += 0.002;
+    planet.rotation.z = Math.sin(t * 0.1) * 0.1;
+
+    // La atmósfera pulsa ligeramente
+    atmosphere.scale.setScalar(1 + Math.sin(t * 1.5) * 0.02);
+
+    // Sistema de partículas girando
+    particleSystem.rotation.y = -t * 0.05;
+    
+    // Movimiento ondulante de partículas
+    const positions = particleSystem.geometry.attributes.position.array;
+    for(let i=0; i<count; i++) {
+        // Efecto de onda vertical
+        const x = positions[i*3];
+        const z = positions[i*3+2];
+        positions[i*3+1] += Math.sin(t * 2 + x) * 0.002;
+    }
+    particleSystem.geometry.attributes.position.needsUpdate = true;
+
+    // Parallax suave con el mouse
+    camera.position.x += (mouseX * 5 - camera.position.x) * 0.05;
+    camera.position.y += (-mouseY * 5 - camera.position.y) * 0.05;
+    camera.lookAt(scene.position);
+
+    // Actualizar HUD
+    document.getElementById('coords').innerText = 
+        `${Math.abs(Math.sin(t)).toFixed(2)}, ${Math.abs(Math.cos(t)).toFixed(2)}`;
+
+    composer.render();
+}
+
+animate();
+
+// Resize
+window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    composer.setSize(window.innerWidth, window.innerHeight);
+});
+
+</script>
+</body>
+</html>
